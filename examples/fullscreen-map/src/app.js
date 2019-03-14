@@ -1,6 +1,7 @@
 import React, {Component} from 'react';
 import {render} from 'react-dom';
-import MapGL, {FullscreenControl} from 'react-map-gl';
+import {StaticMap, Marker, FullscreenControl} from 'react-map-gl';
+import Pin from './pin';
 
 const TOKEN = ''; // Set your mapbox token here
 
