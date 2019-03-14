@@ -40,7 +40,8 @@
     "test": "npm run lint && npm run typecheck && NODE_ENV=test node test/start.js test",
     "test-dist": "NODE_ENV=test node test/start.js test-dist",
     "test-browser": "webpack-dev-server --config test/webpack.config.js --env.test_in_browser --progress --hot --open",
-    "test-analyze-size": "./scripts/build.sh && NODE_ENV=production webpack --config test/webpack.config.js --env.import-nothing --env.es6"
+    "test-analyze-size": "./scripts/build.sh && NODE_ENV=production webpack --config test/webpack.config.js --env.import-nothing --env.es6",
+    "update-release-branch": "scripts/update-release-branch.sh"
   },
   "dependencies": {
     "@babel/runtime": "^7.0.0",
