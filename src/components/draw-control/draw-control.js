@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import {MjolnirEvent} from 'mjolnir.js';
 
 import BaseControl from '../base-control';
 import Feature from './feature';
@@ -28,7 +29,8 @@ const FEATURE_STYLES = {
 
 const MODES = {
   READ_ONLY: 'READ_ONLY',
-  SELECT: 'SELECT',
+  SELECT_FEATURE: 'SELECT_FEATURE',
+  EDIT_VERTEX: 'EDIT_VERTEX',
   DRAW_POINT: 'DRAW_POINT',
   DRAW_PATH: 'DRAW_PATH',
   DRAW_POLYGON: 'DRAW_POLYGON'
@@ -91,15 +93,15 @@ export default class DrawControl extends BaseControl {
     }
   }
 
-  // componentDidMount() {
-  //   super.componentDidMount();
-  //   this._setupEvents();
-  // }
-  //
-  // componentWillUnmount() {
-  //   super.componentWillUnmount();
-  //   this._removeEvents();
-  // }
+  componentDidMount() {
+    super.componentDidMount();
+    this._setupEvents();
+  }
+
+  componentWillUnmount() {
+    super.componentWillUnmount();
+    this._removeEvents();
+  }
 
   _setupEvents() {
     const {eventManager} = this._context;
@@ -111,9 +113,9 @@ export default class DrawControl extends BaseControl {
     // panstart is already attached by parent class BaseControl,
     // here we just add listeners for subsequent drag events
     this._events = {
-      click: evt => this._onEvent(this._onBeforeClick, evt),
+      click: evt => this._onEvent(this._onClick, evt),
       pointermove: evt => this._onEvent(this._onMouseMove, evt),
-      pointerdown: evt => this._onEvent(this._onMouseDown, evt),
+      pointerdown: (evt) => this._onEvent(this._onMouseDown, evt),
       pointerup: evt => this._onEvent(this._onMouseUp, evt)
     };
 
@@ -165,18 +167,11 @@ export default class DrawControl extends BaseControl {
     this.props.onSelect(selectedFeature.id);
   };
 
-  _onBeforeClick = (evt) => {
-    if (!this.state.didDrag) {
-      this._onClick(evt);
-    }
-    evt.stopPropagation();
-  };
-
   _onEvent = (handler, evt, ...args) => {
     const {mode} = this.props;
     if (
       mode === MODES.READ_ONLY ||
-      (mode === MODES.SELECT && handler !== this._onClickFeature)
+      (mode === MODES.SELECT_FEATURE && handler !== this._onClickFeature)
     ) {
       evt.stopPropagation();
       return;
@@ -187,18 +182,31 @@ export default class DrawControl extends BaseControl {
 
   _onMouseUp = (evt) => {
     evt.stopPropagation();
-    this.setState({isDragging: false});
+    this.setState({
+      isDragging: false,
+      didDrag: false
+    });
     const {draggingVertex} = this.state;
     if (draggingVertex >= 0) {
-      this.setState({draggingVertex: -1});
+      this.setState({
+        draggingVertex: -1
+      });
       this._update(this.state.features);
     }
   };
 
   _onMouseDown = (evt) => {
-    evt.stopPropagation();
+    const elem = evt.target;
+    if (elem.className.baseVal.startsWith('vertex')) {
+      const [index] = elem.id.split('.');
+      this._onDragVertex(evt, index);
+    }
+  };
+
+  _onDragVertex = (evt, index) => {
     const {x, y} = this._getEventPosition(evt);
     this.setState({
+      draggingVertex: index,
       startDragPos: {x, y},
       isDragging: true,
       didDrag: false
@@ -227,12 +235,6 @@ export default class DrawControl extends BaseControl {
     }
   };
 
-  _onDragVertex = (evt, index) => {
-    evt.stopPropagation();
-    this.setState({draggingVertex: index});
-    this._onMouseDown(evt);
-  };
-
   _addFeature = (type, point) => {
     const feature = new Feature({
       id: Date.now(),
@@ -243,8 +245,29 @@ export default class DrawControl extends BaseControl {
     this._addPoint(point.x, point.y, feature);
   };
 
-  _onClick = (evt) => {
-    evt.stopPropagation();
+  _onClick = (evt: MjolnirEvent) => {
+    if (evt.type !== 'anyclick') {
+      return;
+    }
+
+    const elem = evt.target;
+
+    if (elem.className.baseVal.startsWith('feature')) {
+      this._onClickFeature(evt, this.state.features[elem.id]);
+      return;
+    }
+
+    if (elem.className.baseVal.startsWith('vertex')) {
+      const [index, operation] = elem.id.split('.');
+      this._onClickVertex(evt, index, operation);
+      return;
+    }
+
+    if (this.state.didDrag) {
+      return;
+    }
+
+    evt.stopImmediatePropagation();
     const {mode} = this.props;
     const selectedFeature = this._getSelectedFeature();
     const {x, y} = this._getEventPosition(evt);
@@ -275,7 +298,11 @@ export default class DrawControl extends BaseControl {
   };
 
   _onClickFeature = (evt, feature) => {
-    if (this.props.mode === MODES.SELECT || !this.state.selectedId) {
+    if (
+      this.props.mode === MODES.SELECT_FEATURE ||
+      this.props.mode === MODES.EDIT_VERTEX ||
+      !this.state.selectedId
+    ) {
       this.props.onSelect(feature.id);
       evt.stopPropagation();
     }
@@ -299,9 +326,7 @@ export default class DrawControl extends BaseControl {
   };
 
   _getEventPosition(evt) {
-    // const {offsetCenter: {x, y}} = evt;
-    // return {x, y};
-    const {clientX: x, clientY: y} = evt;
+    const {offsetCenter: {x, y}} = evt;
     return {x, y};
   }
 
@@ -330,14 +355,19 @@ export default class DrawControl extends BaseControl {
     return features && features.find(f => f.id === selectedId);
   };
 
-  _renderVertex(coords, index, operation, radius) {
+  _renderVertex(coords, index, operation, radius, style) {
     const p = this._project(coords);
     return (
-      <g
-        className="vertex"
-        transform={`translate(${p[0]},${p[1]})`}
-        onClick={(evt) => this._onEvent(this._onClickVertex, evt, index, operation)}>
-        <circle cx={0} cy={0} r={radius}/>
+      <g className="vertex-group" key={index} id={`${index}.${operation}`}
+         transform={`translate (${p[0]} ${p[1]})`} style={style}>
+        <circle
+          id={`${index}.${operation}`}
+          key={index}
+          className="vertex"
+          cx={0}
+          cy={0}
+          r={radius}
+        />
       </g>
     );
   }
@@ -356,14 +386,7 @@ export default class DrawControl extends BaseControl {
             let operation = OPERATIONS.SET;
             if (isClosed) {
               return (
-                <g
-                  className="vertex-group"
-                  key={i}
-                  style={style}
-                  onMouseDown={(evt) => this._onEvent(this._onDragVertex, evt, i, operation)}
-                >
-                  {this._renderVertex(p, i, operation, VERTEX_RADIUS)}
-                </g>
+                this._renderVertex(p, i, operation, VERTEX_RADIUS, style)
               );
             }
 
@@ -372,14 +395,7 @@ export default class DrawControl extends BaseControl {
             }
 
             return (
-              <g
-                className="vertex-group"
-                key={i}
-                style={style}
-                onMouseDown={(evt) => this._onEvent(this._onClickVertex, evt, i, operation)}
-              >
-                {this._renderVertex(p, i, operation, VERTEX_RADIUS)}
-              </g>
+              this._renderVertex(p, i, operation, VERTEX_RADIUS, style)
             );
           })}
         </g>
@@ -400,33 +416,35 @@ export default class DrawControl extends BaseControl {
     case 'Point':
       return (
         <circle
-          className="point"
+          className="feature point"
           key={index}
+          id={index}
           style={style}
           cx={points[0][0]}
           cy={points[0][1]}
           r={VERTEX_RADIUS * 0.7}
-          onClick={(evt) => this._onEvent(this._onClickFeature, evt, feature)}
         />
       );
-    case 'Polygon':
-      return (
-        <path
-          className="polygon"
-          key={index}
-          style={style}
-          d={this._getProjectedData(feature)}
-          onClick={(evt) => this._onEvent(this._onClickFeature, evt, feature)}
-        />
-      );
+
     case 'LineString':
       return (
         <path
-          className="line-string"
+          className="feature line-string"
           key={index}
+          id={index}
           style={style}
           d={this._getProjectedData(feature)}
-          onClick={(evt) => this._onEvent(this._onClickFeature, evt, feature)}
+        />
+      );
+
+    case 'Polygon':
+      return (
+        <path
+          className="feature polygon"
+          key={index}
+          id={index}
+          style={style}
+          d={this._getProjectedData(feature)}
         />
       );
 
@@ -464,15 +482,13 @@ export default class DrawControl extends BaseControl {
     return (
       <div
         className="draw-control"
+        id="draw-control"
         style={{
           ...(mode === MODES.READ_ONLY ? STATIC_STYLE : null),
           width,
           height
         }}
-        onClick={evt => this._onEvent(this._onBeforeClick, evt)}
-        onMouseMove={evt => this._onEvent(this._onMouseMove, evt)}
-        onMouseDown={evt => this._onEvent(this._onMouseDown, evt)}
-        onMouseUp={evt => this._onEvent(this._onMouseUp, evt)}
+        ref={this._containerRef.current}
       >
         {this._renderCanvas()}
       </div>

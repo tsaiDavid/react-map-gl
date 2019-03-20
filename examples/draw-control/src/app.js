@@ -7,7 +7,8 @@ import data from './sample.geo';
 
 const MODES = [
   {name: 'Read Only', value: DrawControl.READ_ONLY},
-  {name: 'Select Feature', value: DrawControl.SELECT},
+  {name: 'Select Feature', value: DrawControl.SELECT_FEATURE},
+  {name: 'Edit Vertex', value: DrawControl.EDIT_VERTEX},
   {name: 'Draw Point', value: DrawControl.DRAW_POINT},
   {name: 'Draw Path', value: DrawControl.DRAW_PATH},
   {name: 'Draw Polygon', value: DrawControl.DRAW_POLYGON}
